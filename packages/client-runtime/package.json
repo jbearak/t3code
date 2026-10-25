@@ -474,6 +474,10 @@
     "./model-traits": {
       "types": "./src/modelTraits.ts",
       "default": "./src/modelTraits.ts"
+    },
+    "./model-reasoning-grid": {
+      "types": "./src/modelReasoningGrid.ts",
+      "default": "./src/modelReasoningGrid.ts"
     }
   },
   "scripts": {

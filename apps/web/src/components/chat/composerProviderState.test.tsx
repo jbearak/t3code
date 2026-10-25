@@ -386,6 +386,22 @@ describe("getComposerReasoningStep", () => {
     ).toStrictEqual(selections(["reasoning_effort", "high"], ["fastMode", true]));
   });
 
+  it("skips Max while the model picker hides it, but still steps away from it", () => {
+    const models = modelWith([
+      selectDescriptor("reasoningEffort", [
+        { id: "high", label: "High", isDefault: true },
+        { id: "max", label: "Max" },
+        { id: "ultra", label: "Ultra" },
+      ]),
+    ]);
+    const from = (level: string, skipMax: boolean) =>
+      step({ models, modelOptions: selections(["reasoningEffort", level]), skipMax })?.modelOptions;
+
+    expect(from("high", true)).toStrictEqual(selections(["reasoningEffort", "ultra"]));
+    expect(from("high", false)).toStrictEqual(selections(["reasoningEffort", "max"]));
+    expect(from("max", true)).toStrictEqual(selections(["reasoningEffort", "ultra"]));
+  });
+
   it("steps from the provider-reported level for the same instance and model", () => {
     const reported = {
       instanceId: INSTANCE,

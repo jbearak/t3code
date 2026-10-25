@@ -21,6 +21,7 @@ import type {
   ProjectId,
   PreviewAnnotationPayload,
   ProviderApprovalDecision,
+  ProviderOptionSelection,
   ThreadContextRecord,
   ProviderInteractionMode,
   ResolvedKeybindingsConfig,
@@ -516,8 +517,11 @@ export interface ChatComposerProps {
   onProviderModelSelect: (
     instanceId: ProviderInstanceId,
     model: string,
-    options?: { focusComposer?: boolean },
-  ) => void;
+    options?: {
+      focusComposer?: boolean;
+      modelOptions?: ReadonlyArray<ProviderOptionSelection> | undefined;
+    },
+  ) => boolean;
   onOpenProviderSetup: (instanceId: ProviderInstanceId) => void;
   getModelDisabledReason: (instanceId: ProviderInstanceId, model: string) => string | null;
   toggleInteractionMode: () => void;
@@ -1255,12 +1259,15 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         activePendingProgress.activeQuestion?.allowCustomAnswer !== false));
   const composerFooterHasWideActions = showPlanFollowUpPrompt || activePendingProgress !== null;
 
-  const editPromptFromTraits = (edit: (prompt: string) => string) => {
+  const editPromptFromTraits = (
+    edit: (prompt: string) => string,
+    options?: { readonly focusComposer?: boolean },
+  ) => {
     const currentPrompt = getComposerDraft(composerDraftTarget)?.prompt ?? "";
     const nextPrompt = edit(currentPrompt);
     if (nextPrompt === currentPrompt) return;
     if (nextPrompt === promptRef.current) {
-      scheduleComposerFocus();
+      if (options?.focusComposer !== false) scheduleComposerFocus();
       return;
     }
     promptRef.current = nextPrompt;
@@ -1268,7 +1275,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     const nextCursor = collapseExpandedComposerCursor(nextPrompt, nextPrompt.length);
     setComposerCursor(nextCursor);
     setComposerTrigger(detectComposerTrigger(nextPrompt, nextPrompt.length));
-    scheduleComposerFocus();
+    if (options?.focusComposer !== false) scheduleComposerFocus();
   };
   const editPromptFromTraitsStable = useStableCallback(editPromptFromTraits);
   const promptUltrathink = readPromptUltrathink(prompt);
@@ -2547,6 +2554,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       promptUltrathink={promptUltrathink}
       onPromptEdit={editPromptFromTraitsStable}
       planModeEnabled={settings.planModeEnabled}
+      maxReasoningEnabled={settings.maxReasoningEnabled}
       planModeUiEnabled={planModeUiEnabled}
       interactionMode={interactionMode}
       compatibleRuntimeMode={compatibleRuntimeMode}
@@ -3123,6 +3131,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           prompt: promptRef.current,
           cursor: readComposerSnapshotStable().expandedCursor,
           planModeEnabled: settings.planModeEnabled,
+          skipMax: !settings.maxReasoningEnabled,
           direction,
         });
         if (!change) return;

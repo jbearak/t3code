@@ -7,6 +7,12 @@ import {
   MODEL_PICKER_JUMP_KEYBINDING_COMMANDS,
 } from "@t3tools/contracts";
 import { resolveSelectableModel } from "@t3tools/shared/model";
+import {
+  SPEED_TIERS,
+  visibleReasoningColumns,
+  type ReasoningColumn,
+  type SpeedTier,
+} from "@t3tools/client-runtime/model-reasoning-grid";
 import { useAtomValue } from "@effect/atom-react";
 import { formatProviderUpdateRequiredNotice } from "@t3tools/client-runtime/providerUpdateRequiredModels";
 import { useNavigate } from "@tanstack/react-router";
@@ -24,6 +30,8 @@ import {
 import { ChevronRightIcon } from "lucide-react";
 import { ModelListRow } from "./ModelListRow";
 import { ModelPickerSidebar } from "./ModelPickerSidebar";
+import { internColumns, type ModelPickerReasoningGrid } from "./modelPickerReasoningGrid";
+import { ReasoningColumnHeader } from "./ReasoningGridControls";
 import { getProviderStatusMessage, hasProviderSetup } from "./ProviderStatusBanner";
 import {
   modelPickerLegacySectionKey,
@@ -162,6 +170,25 @@ function adjacentModelPickerProvider(input: {
 
 const EMPTY_MODEL_JUMP_LABELS = new Map<string, string>();
 const MODEL_LIST_ESTIMATED_ITEM_SIZE = 52;
+const ULTRATHINK_LOCK_REASON = 'Your prompt contains "ultrathink". Remove it to change reasoning.';
+
+/** The first rendered row with a tab stop, in key order; DOM order lags behind recycled rows. */
+function findRowTabStop(
+  content: Element | null,
+  modelKeys: ReadonlyArray<string | null>,
+): HTMLButtonElement | null {
+  const tabStop = 'button[tabindex="0"]:not(:disabled)';
+  for (const modelKey of modelKeys) {
+    const button =
+      modelKey === null
+        ? null
+        : content?.querySelector<HTMLButtonElement>(
+            `[data-reasoning-row="${CSS.escape(modelKey)}"] ${tabStop}`,
+          );
+    if (button) return button;
+  }
+  return null;
+}
 
 function ModelListSeparator() {
   return <div className="h-0.5" />;
@@ -355,6 +382,7 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
   onOpenProviderSetup?: (instanceId: ProviderInstanceId) => void;
   getModelDisabledReason?: (instanceId: ProviderInstanceId, model: string) => string | null;
   onInstanceModelChange: (instanceId: ProviderInstanceId, model: string) => void;
+  reasoningGrid?: ModelPickerReasoningGrid | undefined;
 }) {
   const {
     keybindings: providedKeybindings,
@@ -365,6 +393,7 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
     onToggleModel,
     onRequestClose,
     onOpenProviderSetup,
+    reasoningGrid,
   } = props;
   const [searchQuery, setSearchQuery] = useState("");
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -499,10 +528,50 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
     if (!resolvedModel) return null;
     if (additive && onToggleModel) {
       onToggleModel(instanceId, resolvedModel);
+    } else if (reasoningGrid) {
+      reasoningGrid.onChoose(
+        instanceId,
+        resolvedModel,
+        modelPickerModelKey(instanceId, resolvedModel) === activeModelKey,
+        null,
+      );
+      onRequestClose?.();
     } else {
       onInstanceModelChange(instanceId, resolvedModel);
     }
     return resolvedModel;
+  };
+
+  const chooseReasoning = (
+    instanceId: ProviderInstanceId,
+    slug: string,
+    column: ReasoningColumn,
+    keepOpen: boolean,
+  ) => {
+    if (!reasoningGrid || getModelDisabledReason?.(instanceId, slug)) return;
+    reasoningGrid.onChoose(
+      instanceId,
+      slug,
+      modelPickerModelKey(instanceId, slug) === activeModelKey,
+      column,
+      { keepOpen },
+    );
+    if (!keepOpen) onRequestClose?.();
+  };
+
+  const chooseSpeed = (
+    instanceId: ProviderInstanceId,
+    slug: string,
+    tier: SpeedTier,
+    keepOpen: boolean,
+  ) => {
+    if (!reasoningGrid || getModelDisabledReason?.(instanceId, slug)) return;
+    if (modelPickerModelKey(instanceId, slug) === activeModelKey) {
+      reasoningGrid.onSpeedChange(tier);
+    } else {
+      reasoningGrid.onChoose(instanceId, slug, false, null, { speed: tier, keepOpen });
+    }
+    if (!keepOpen) onRequestClose?.();
   };
 
   const modelJumpShortcutContext = {
@@ -736,6 +805,49 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
         (model) => [modelPickerModelKey(model.instanceId, model.slug), model] as const,
       ),
     ))();
+  // Primitive row props let unchanged rows skip rendering while the search narrows the list.
+  const reasoningRowByKey = reasoningGrid
+    ? new Map(
+        visibleModels.map((model) => {
+          const modelKey = modelPickerModelKey(model.instanceId, model.slug);
+          return [
+            modelKey,
+            reasoningGrid.getRow(model.instanceId, model.slug, modelKey === activeModelKey),
+          ] as const;
+        }),
+      )
+    : null;
+  const reasoningColumns =
+    reasoningGrid && reasoningRowByKey
+      ? internColumns(
+          visibleReasoningColumns(reasoningRowByKey.values(), { showMax: reasoningGrid.showMax }),
+        )
+      : undefined;
+  const speedByKey = reasoningGrid
+    ? new Map(
+        visibleModels.map((model) => {
+          const modelKey = modelPickerModelKey(model.instanceId, model.slug);
+          return [
+            modelKey,
+            reasoningGrid.getSpeed(model.instanceId, model.slug, modelKey === activeModelKey),
+          ] as const;
+        }),
+      )
+    : null;
+  const speedColumns = internColumns(
+    SPEED_TIERS.filter((tier) =>
+      [...(speedByKey?.values() ?? [])].some((speed) => speed?.tiers.includes(tier)),
+    ),
+  );
+  const reasoningLevelsFor = (modelKey: string): ReadonlyArray<ReasoningColumn> => {
+    const row = reasoningRowByKey?.get(modelKey);
+    return internColumns(
+      (reasoningColumns ?? []).filter((column) => row?.optionIdByColumn[column] !== undefined),
+    );
+  };
+  const reasoningLockedFor = (modelKey: string): boolean =>
+    reasoningGrid?.promptLocksReasoning === true &&
+    reasoningRowByKey?.get(modelKey)?.promptInjected === true;
 
   const modelJumpLabelByKey = modelJumpLabelsByKey(
     modelJumpModelKeys,
@@ -747,6 +859,9 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
     modelJumpLabelByKey,
     activeModelKey,
     selectedModelKeySet,
+    reasoningRowByKey,
+    reasoningColumns,
+    speedByKey,
   };
 
   const onWindowKeyDown = (event: globalThis.KeyboardEvent) => {
@@ -804,7 +919,10 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
       <WindowKeyDownListener onKeyDown={onWindowKeyDown} />
       <div
         ref={pickerContentRef}
-        className="relative flex max-h-86.5 w-screen max-w-90 flex-row overflow-hidden"
+        className={cn(
+          "relative flex w-screen flex-row overflow-hidden",
+          reasoningGrid ? "max-h-104 max-w-136" : "max-h-86.5 max-w-90",
+        )}
         style={isSearching ? { height: searchHeight } : undefined}
         data-model-picker-content="true"
       >
@@ -911,6 +1029,25 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
                   onRequestClose?.();
                   return;
                 }
+                if (
+                  reasoningGrid &&
+                  e.key === "Tab" &&
+                  !e.shiftKey &&
+                  !e.altKey &&
+                  !e.ctrlKey &&
+                  !e.metaKey
+                ) {
+                  const tabStop = findRowTabStop(
+                    e.currentTarget.closest("[data-model-picker-content]"),
+                    [highlightedModelKeyRef.current, activeModelKey, ...filteredItemKeys],
+                  );
+                  if (tabStop) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    tabStop.focus();
+                    return;
+                  }
+                }
                 if (e.key === "Enter" && highlightedModelKeyRef.current) {
                   (e as typeof e & { preventBaseUIHandler?: () => void }).preventBaseUIHandler?.();
                   e.preventDefault();
@@ -933,6 +1070,9 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
               onMouseDown={(e) => e.stopPropagation()}
               onTouchStart={(e) => e.stopPropagation()}
             />
+            {reasoningColumns && (reasoningColumns.length > 0 || speedColumns.length > 0) ? (
+              <ReasoningColumnHeader columns={reasoningColumns} speedColumns={speedColumns} />
+            ) : null}
 
             <ModelPickerList
               listRef={modelListRef}
@@ -969,6 +1109,8 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
                 }
                 const disabledReason =
                   getModelDisabledReason?.(model.instanceId, model.slug) ?? null;
+                const reasoningRow = reasoningRowByKey?.get(modelKey) ?? null;
+                const speed = speedByKey?.get(modelKey) ?? null;
                 return (
                   <ModelListRow
                     key={modelKey}
@@ -998,6 +1140,22 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
                     jumpLabel={modelJumpLabelByKey.get(modelKey) ?? null}
                     disabledReason={disabledReason}
                     onToggleFavorite={toggleFavorite}
+                    {...(reasoningGrid && reasoningColumns !== undefined
+                      ? {
+                          reasoningColumns,
+                          reasoningLevels: reasoningLevelsFor(modelKey),
+                          reasoningCurrent: reasoningRow?.current ?? null,
+                          reasoningActive: modelKey === activeModelKey,
+                          reasoningDisabledReason: reasoningLockedFor(modelKey)
+                            ? ULTRATHINK_LOCK_REASON
+                            : null,
+                          onChooseReasoning: chooseReasoning,
+                          speedColumns,
+                          speedTiers: internColumns(speed?.tiers ?? []),
+                          speedCurrent: speed?.current ?? null,
+                          onChooseSpeed: chooseSpeed,
+                        }
+                      : {})}
                   />
                 );
               }}

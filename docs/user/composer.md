@@ -105,6 +105,18 @@ instance:
 }
 ```
 
+## Choose a model, reasoning, and speed
+
+On web and desktop, the model button sets the model, its reasoning level, and its speed. Click or
+drag to a level in a model's row to switch to that model at that level, or choose the model's name
+to use the level you last chose for it. The speed columns on the right show the speed each model
+would run at; click one to change the current model's speed, or to switch to another model at that
+speed. Choosing closes the picker; middle- or right-click a level or speed to choose it and keep the
+picker open. Each model remembers its own speed, as it does its level. Claude's Ultracode is the
+Fleet level; type "ultrathink" in a prompt for Ultrathink. Max appears only when **Settings →
+General → Legacy features → Max reasoning** is on. Other options, such as the context window, stay
+in the menu beside the model button.
+
 ## Model defaults
 
 T3 Code remembers your provider, model, and model options for new threads. A

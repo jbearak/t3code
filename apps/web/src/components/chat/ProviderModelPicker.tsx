@@ -6,6 +6,7 @@ import {
   type ResolvedKeybindingsConfig,
 } from "@t3tools/contracts";
 import { memo, useEffect, useState } from "react";
+import { BrainIcon } from "lucide-react";
 import { Badge } from "../ui/badge";
 import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
@@ -22,10 +23,15 @@ import { shouldShowInstanceBadge, type ProviderInstanceEntry } from "../../provi
 import {
   ComposerControl,
   ComposerControlChevron,
+  ComposerControlIcon,
+  ComposerControlSeparator,
   type ComposerControlSize,
 } from "./ComposerControl";
 import { useComposerMenuProps } from "./composerEventScope";
 import { shortcutLabelForCommand } from "../../keybindings";
+import type { ModelPickerReasoningGrid } from "./modelPickerReasoningGrid";
+import { SPEED_TIER_LABELS } from "./ReasoningGridControls";
+import { TraitsSpeedIcon } from "./TraitsSpeed";
 
 export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
   environmentId: EnvironmentId | null;
@@ -53,6 +59,7 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
   onOpenProviderSetup?: (instanceId: ProviderInstanceId) => void;
   getModelDisabledReason?: (instanceId: ProviderInstanceId, model: string) => string | null;
   onInstanceModelChange: (instanceId: ProviderInstanceId, model: string) => void;
+  reasoningGrid?: ModelPickerReasoningGrid | undefined;
 }) {
   const composerFloatingLayerProps = useComposerMenuProps();
   const [uncontrolledIsMenuOpen, setUncontrolledIsMenuOpen] = useState(false);
@@ -144,6 +151,27 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
     props.onInstanceModelChange(instanceId, model);
     setIsMenuOpen(false);
   };
+  const sourceReasoningGrid = props.reasoningGrid;
+  const reasoningGrid: ModelPickerReasoningGrid | undefined = sourceReasoningGrid
+    ? {
+        ...sourceReasoningGrid,
+        onSpeedChange: (tier) => {
+          if (!props.disabled) sourceReasoningGrid.onSpeedChange(tier);
+        },
+        onChoose: (...args) => {
+          if (!props.disabled) sourceReasoningGrid.onChoose(...args);
+        },
+      }
+    : undefined;
+  const reasoningDisplay = reasoningGrid && !props.selectedModels ? reasoningGrid.display : null;
+  const traitsTooltip = reasoningDisplay
+    ? [
+        reasoningDisplay.reasoningLabel,
+        reasoningDisplay.speed === "standard" ? null : SPEED_TIER_LABELS[reasoningDisplay.speed],
+      ]
+        .filter((part) => part !== null)
+        .join(" · ")
+    : "";
 
   const shortcutLabel = props.keybindings
     ? shortcutLabelForCommand(props.keybindings, "modelPicker.toggle")
@@ -176,9 +204,13 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
   const allModelNames = selectedEntries
     ? selectedEntries.map((selection) => selection.label).join(", ") || "Choose models"
     : undefined;
-  const triggerTooltipContent = shortcutLabel
-    ? `${props.triggerLabel ?? allModelNames ?? triggerLabel} · ${shortcutLabel}`
-    : (props.triggerLabel ?? allModelNames ?? triggerLabel);
+  const triggerTooltipLabel = [
+    props.triggerLabel ?? allModelNames ?? triggerLabel,
+    traitsTooltip,
+    shortcutLabel,
+  ]
+    .filter((part) => part)
+    .join(" · ");
 
   return (
     <Popover
@@ -197,6 +229,11 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
             aria-label={props.triggerAriaLabel ?? allModelNames}
             size={size}
             data-chat-provider-model-picker="true"
+            data-composer-shortcut={
+              props.isComposerOwned && reasoningGrid?.ownsEffortShortcut
+                ? "composer.effort"
+                : undefined
+            }
             className={cn(
               "min-w-0 shrink justify-between whitespace-nowrap",
               props.compact
@@ -254,15 +291,52 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
             <TooltipTrigger
               render={
                 <span
-                  className="min-w-0 flex-1 overflow-hidden truncate"
+                  className={cn(
+                    "min-w-0 overflow-hidden truncate",
+                    // Shrinks with the reasoning label rather than giving up its space first.
+                    reasoningDisplay ? "flex-auto" : "flex-1",
+                  )}
                   data-chat-provider-model-picker-label="true"
                 />
               }
             >
               {props.triggerLabel ?? multipleLabel ?? triggerTitle}
             </TooltipTrigger>
-            <TooltipPopup side="top">{triggerTooltipContent}</TooltipPopup>
+            <TooltipPopup side="top">{triggerTooltipLabel}</TooltipPopup>
           </Tooltip>
+          {reasoningDisplay && props.triggerLabel === undefined ? (
+            <>
+              {reasoningDisplay.reasoningLabel ? (
+                <ComposerControlSeparator
+                  aria-hidden="true"
+                  size={size}
+                  className={cn("block", size === "xs" ? "mx-2" : "mx-2.5")}
+                />
+              ) : null}
+              <span
+                className={cn(
+                  "flex min-w-0 shrink items-center",
+                  size === "xs" ? "gap-1" : "gap-1.5",
+                )}
+              >
+                {reasoningDisplay.reasoningLabel ? (
+                  <>
+                    <ComposerControlIcon icon={BrainIcon} size={size} />
+                    <span className="min-w-0 truncate" data-chat-provider-model-picker-label="true">
+                      {reasoningDisplay.reasoningLabel}
+                    </span>
+                  </>
+                ) : null}
+                {reasoningDisplay.speed !== "standard" && activeEntry ? (
+                  <TraitsSpeedIcon
+                    provider={activeEntry.driverKind}
+                    speedIcon={reasoningDisplay.speed}
+                    size={size}
+                  />
+                ) : null}
+              </span>
+            </>
+          ) : null}
           {selectedModel?.isUnavailable && !selectedEntries && props.triggerLabel === undefined ? (
             <Badge variant="outline" size="sm">
               Unavailable
@@ -306,6 +380,7 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
               : (props.getModelDisabledReason?.(instanceId, model) ?? null)
           }
           onInstanceModelChange={handleInstanceModelChange}
+          reasoningGrid={reasoningGrid}
         />
         {props.selectedModels === undefined ? (
           <ChatGptSharingControl provider={activeEntry?.snapshot ?? null} />

@@ -39,6 +39,11 @@ the provider list. Use Up/Down to move and Enter to choose. Right returns to
 model search. `mod+shift+up` and `mod+shift+down` switch providers directly and clear the
 search. These provider shortcuts can also be changed in Settings.
 
+When the model button also shows the reasoning level, `mod+shift+e` opens the model
+picker. Tab from search moves to a model's levels; Left and Right move between them
+and Enter chooses one. Increase and decrease effort skip Max unless **Legacy
+features → Max reasoning** is on.
+
 These shortcuts run inside the focused web or desktop client. `mod` uses Command
 on macOS and Ctrl on Windows and Linux, including GNOME, KDE Plasma, Niri, and
 Hyprland. If a custom desktop shortcut takes the same keys, choose another binding

@@ -14,7 +14,7 @@ import {
   isClaudeUltrathinkPrompt,
   normalizeModelSlug,
 } from "@t3tools/shared/model";
-import type { ReactNode } from "react";
+import type { ComponentType, ReactNode, SVGProps } from "react";
 
 import type { DraftId } from "../../composerDraftStore";
 import { getProviderModelCapabilities } from "../../providerModels";
@@ -63,6 +63,9 @@ type TraitsRenderInput = {
   hidden?: boolean;
   triggerClassName?: string;
   isComposerOwned?: boolean;
+  omitDescriptorIds?: ReadonlyArray<string>;
+  icon?: ComponentType<SVGProps<SVGSVGElement>>;
+  ownsEffortShortcut?: boolean;
 };
 
 export function getComposerPromptInjectionState(prompt: string): ComposerPromptInjectionState {
@@ -171,6 +174,7 @@ export function getComposerReasoningStep(input: {
   prompt: string;
   cursor: number;
   planModeEnabled: boolean;
+  skipMax?: boolean;
   direction: 1 | -1;
 }): {
   prompt: string;
@@ -194,6 +198,7 @@ export function getComposerReasoningStep(input: {
     reportedModelSelection: input.reportedModelSelection,
     prompt,
     planModeEnabled: input.planModeEnabled,
+    ...(input.skipMax ? { skipMax: true } : {}),
     direction: input.direction,
   });
   if (!step) return null;
@@ -232,6 +237,9 @@ function renderTraitsControl(
     hidden,
     triggerClassName,
     isComposerOwned,
+    omitDescriptorIds,
+    icon,
+    ownsEffortShortcut,
   } = input;
   const hasTarget = threadRef !== undefined || draftId !== undefined;
   const { selections: resolvedModelOptions } = resolveComposerOptionSelections(
@@ -250,6 +258,7 @@ function renderTraitsControl(
       modelOptions: resolvedModelOptions,
       promptUltrathink,
       planModeEnabled,
+      omitDescriptorIds,
     })
   ) {
     return null;
@@ -271,6 +280,11 @@ function renderTraitsControl(
       {...(hidden !== undefined ? { hidden } : {})}
       {...(triggerClassName !== undefined ? { triggerClassName } : {})}
       {...(isComposerOwned ? { isComposerOwned } : {})}
+      {...(omitDescriptorIds ? { omitDescriptorIds } : {})}
+      {...(icon && Component === TraitsPicker ? { icon } : {})}
+      {...(ownsEffortShortcut !== undefined && Component === TraitsPicker
+        ? { ownsEffortShortcut }
+        : {})}
     />
   );
 }

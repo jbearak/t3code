@@ -7,6 +7,7 @@ import {
   type EnvironmentId,
   type ModelSelection,
   ProviderInstanceId,
+  type ProviderOptionSelection,
   type ServerProvider,
   type ThreadId,
   ProviderInteractionMode,
@@ -140,12 +141,16 @@ export function useComposerSelection(input: ComposerSelectionInput) {
       : null,
   );
 
+  /** Returns whether the selection changed. `modelOptions` replaces the model's remembered options. */
   const onProviderModelSelect = (
     instanceId: ProviderInstanceId,
     model: string,
-    options?: { focusComposer?: boolean },
-  ) => {
-    if (!activeThread) return;
+    options?: {
+      focusComposer?: boolean;
+      modelOptions?: ReadonlyArray<ProviderOptionSelection> | undefined;
+    },
+  ): boolean => {
+    if (!activeThread) return false;
     const entry = providerStatuses.find((snapshot) => snapshot.instanceId === instanceId);
     const resolvedDriverKind = entry?.driver ?? null;
     if (
@@ -155,7 +160,7 @@ export function useComposerSelection(input: ComposerSelectionInput) {
       resolvedDriverKind !== lockedProvider
     ) {
       if (options?.focusComposer !== false) scheduleComposerFocus();
-      return;
+      return false;
     }
     if (
       !supportsProviderSwitchingViaHandoff &&
@@ -171,7 +176,7 @@ export function useComposerSelection(input: ComposerSelectionInput) {
         currentEntry.continuation.groupKey !== entry.continuation.groupKey
       ) {
         if (options?.focusComposer !== false) scheduleComposerFocus();
-        return;
+        return false;
       }
     }
     const resolvedModel = resolveAppModelSelectionForInstance(
@@ -182,13 +187,14 @@ export function useComposerSelection(input: ComposerSelectionInput) {
     );
     if (!resolvedModel) {
       if (options?.focusComposer !== false) scheduleComposerFocus();
-      return;
+      return false;
     }
-    const rememberedOptions =
+    const nextOptions =
+      options?.modelOptions ??
       useComposerDraftStore.getState().stickyOptionsByModelByProvider[instanceId]?.[resolvedModel];
     const nextModelSelection: ModelSelection =
-      rememberedOptions !== undefined && rememberedOptions.length > 0
-        ? { instanceId, model: resolvedModel, options: [...rememberedOptions] }
+      nextOptions !== undefined && nextOptions.length > 0
+        ? { instanceId, model: resolvedModel, options: [...nextOptions] }
         : { instanceId, model: resolvedModel };
     const modelChangeBlockReason = getStartedThreadModelChangeBlockReason({
       providers: providerStatuses,
@@ -205,15 +211,26 @@ export function useComposerSelection(input: ComposerSelectionInput) {
         description: modelChangeBlockReason.description,
       });
       if (options?.focusComposer !== false) scheduleComposerFocus();
-      return;
+      return false;
     }
-    setComposerDraftModelSelection(
-      scopeThreadRef(activeThread.environmentId, activeThread.id),
-      nextModelSelection,
-      { explicit: true, replaceOptions: true },
-    );
+    const threadRef = scopeThreadRef(activeThread.environmentId, activeThread.id);
+    setComposerDraftModelSelection(threadRef, nextModelSelection, {
+      explicit: true,
+      replaceOptions: true,
+    });
     setStickyComposerModelSelection(nextModelSelection);
+    if (options?.modelOptions !== undefined && entry) {
+      // Also remembered per model, so the picker shows this level the next time.
+      useComposerDraftStore
+        .getState()
+        .setProviderModelOptions(threadRef, entry.driver, options.modelOptions, {
+          instanceId,
+          model: resolvedModel,
+          persistSticky: true,
+        });
+    }
     if (options?.focusComposer !== false) scheduleComposerFocus();
+    return true;
   };
   const onProviderModelSelectStable = useStableCallback(onProviderModelSelect);
   const onEnvModeChange = (mode: DraftThreadEnvMode) => {

@@ -23,7 +23,7 @@ import {
   isClaudeUltrathinkPrompt,
   normalizeModelSlug,
 } from "@t3tools/shared/model";
-import { memo } from "react";
+import { memo, type ComponentType, type SVGProps } from "react";
 import { BrainIcon, GaugeIcon } from "lucide-react";
 import {
   Menu,
@@ -201,6 +201,7 @@ function getTraitsSectionVisibility(input: {
   modelOptions: ProviderOptions | null | undefined;
   allowPromptInjectedEffort?: boolean;
   planModeEnabled: boolean;
+  omitDescriptorIds?: ReadonlyArray<string> | undefined;
 }) {
   const selected = getSelectedTraits(
     input.provider,
@@ -211,26 +212,22 @@ function getTraitsSectionVisibility(input: {
     input.allowPromptInjectedEffort ?? true,
     input.planModeEnabled,
   );
-
-  const showEffort = selected.primarySelectDescriptor !== null;
-  const showThinking = selected.thinkingDescriptor !== null;
-  const showFastMode = selected.fastModeDescriptor !== null;
-  const showContextWindow = selected.contextWindowDescriptor !== null;
-  const showAgent = selected.agentDescriptor !== null;
+  // Omitted descriptors are only hidden; changes still write every descriptor's value.
+  const omitted = new Set(input.omitDescriptorIds);
+  const shownSelectDescriptors = selected.selectDescriptors.filter(
+    (descriptor) => !omitted.has(descriptor.id),
+  );
+  const shownBooleanDescriptors = selected.booleanDescriptors.filter(
+    (descriptor) => !omitted.has(descriptor.id),
+  );
 
   return {
     ...selected,
-    showEffort,
-    showThinking,
-    showFastMode,
-    showContextWindow,
-    showAgent,
+    shownSelectDescriptors,
+    shownBooleanDescriptors,
     hasAnyControls:
-      showEffort ||
-      showThinking ||
-      showFastMode ||
-      showContextWindow ||
-      showAgent ||
+      shownSelectDescriptors.length > 0 ||
+      shownBooleanDescriptors.length > 0 ||
       (selected.modelIsUnavailable && selected.descriptors.length > 0),
   };
 }
@@ -249,6 +246,7 @@ export function getReasoningTraitStep(input: {
   reportedModelSelection: ModelSelection | null | undefined;
   prompt: string;
   planModeEnabled: boolean;
+  skipMax?: boolean;
   direction: 1 | -1;
 }) {
   const selected = getSelectedTraits(
@@ -283,6 +281,7 @@ export function getReasoningTraitStep(input: {
     ...ordered.slice(position + 1),
     ...ordered.slice(0, Math.max(position, 0)),
   ]) {
+    if (input.skipMax && option.id === "max") continue;
     const change = getTraitSelectChange(selected, descriptor, input.prompt, option.id);
     if (!change) return null;
     if ("modelOptions" in change) {
@@ -304,6 +303,7 @@ export function shouldRenderTraitsControls(input: {
   modelOptions: ProviderOptions | null | undefined;
   allowPromptInjectedEffort?: boolean;
   planModeEnabled: boolean;
+  omitDescriptorIds?: ReadonlyArray<string> | undefined;
 }): boolean {
   return getTraitsSectionVisibility(input).hasAnyControls;
 }
@@ -322,6 +322,7 @@ export interface TraitsMenuContentProps {
   planModeEnabled: boolean;
   triggerClassName?: string;
   isComposerOwned?: boolean;
+  omitDescriptorIds?: ReadonlyArray<string> | undefined;
 }
 
 export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
@@ -335,6 +336,7 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
   reportedModelSelection,
   allowPromptInjectedEffort = true,
   planModeEnabled,
+  omitDescriptorIds,
   ...persistence
 }: TraitsMenuContentProps & TraitsPersistence) {
   const modelSelection =
@@ -363,11 +365,12 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
     modelOptions,
     allowPromptInjectedEffort,
     planModeEnabled,
+    omitDescriptorIds,
   });
   const {
     descriptors,
-    selectDescriptors,
-    booleanDescriptors,
+    shownSelectDescriptors: selectDescriptors,
+    shownBooleanDescriptors: booleanDescriptors,
     primarySelectDescriptor,
     ultrathinkPromptControlled,
     ultrathinkInBodyText,
@@ -519,6 +522,9 @@ export const TraitsPicker = memo(function TraitsPicker({
   planModeEnabled,
   triggerClassName,
   isComposerOwned,
+  omitDescriptorIds,
+  icon,
+  ownsEffortShortcut = true,
   size = "sm",
   hidden = false,
   disabled = false,
@@ -528,42 +534,55 @@ export const TraitsPicker = memo(function TraitsPicker({
     size?: ComposerControlSize;
     hidden?: boolean;
     disabled?: boolean;
+    icon?: ComponentType<SVGProps<SVGSVGElement>>;
+    ownsEffortShortcut?: boolean;
   }) {
   const composerFloatingLayerProps = useComposerMenuProps();
   const [isMenuOpen, setIsMenuOpen] = useComposerMenuState(hidden || disabled);
-  const { descriptors, primarySelectDescriptor, ultrathinkPromptControlled } =
-    getTraitsSectionVisibility({
-      provider,
-      models,
-      model,
-      promptUltrathink,
-      modelOptions,
-      allowPromptInjectedEffort,
-      planModeEnabled,
-    });
-  if (
-    !shouldRenderTraitsControls({
-      provider,
-      models,
-      model,
-      promptUltrathink,
-      modelOptions,
-      allowPromptInjectedEffort,
-      planModeEnabled,
-    })
-  ) {
+  const {
+    descriptors,
+    primarySelectDescriptor,
+    ultrathinkPromptControlled,
+    shownSelectDescriptors,
+    shownBooleanDescriptors,
+    hasAnyControls,
+  } = getTraitsSectionVisibility({
+    provider,
+    models,
+    model,
+    promptUltrathink,
+    modelOptions,
+    allowPromptInjectedEffort,
+    planModeEnabled,
+    omitDescriptorIds,
+  });
+  if (!hasAnyControls) {
     return null;
   }
 
+  const shownDescriptorIds = new Set(
+    [...shownSelectDescriptors, ...shownBooleanDescriptors].map((descriptor) => descriptor.id),
+  );
   const { label: triggerLabel } = buildTraitsTriggerDisplay({
     provider,
-    descriptors,
+    descriptors:
+      omitDescriptorIds && omitDescriptorIds.length > 0
+        ? descriptors.filter((descriptor) => shownDescriptorIds.has(descriptor.id))
+        : descriptors,
     primarySelectDescriptorId: primarySelectDescriptor?.id ?? null,
     ultrathinkPromptControlled,
     modelSelection: instanceId && model ? { instanceId, model, options: modelOptions ?? [] } : null,
     reportedModelSelection,
   });
   const isCodexStyle = provider === "codex";
+  const triggerIcon = icon ? (
+    <ComposerControlIcon icon={icon} size={size} />
+  ) : (
+    <>
+      <ComposerControlIcon icon={BrainIcon} size={size} className="redesign:hidden" />
+      <ComposerControlIcon icon={GaugeIcon} size={size} className="hidden redesign:block" />
+    </>
+  );
 
   return (
     <Menu
@@ -580,7 +599,9 @@ export const TraitsPicker = memo(function TraitsPicker({
                 <ComposerControl
                   disabled={disabled}
                   aria-label={triggerLabel}
-                  data-composer-shortcut={isComposerOwned ? "composer.effort" : undefined}
+                  data-composer-shortcut={
+                    isComposerOwned && ownsEffortShortcut ? "composer.effort" : undefined
+                  }
                   size={size}
                   className={cn(
                     isCodexStyle
@@ -600,8 +621,7 @@ export const TraitsPicker = memo(function TraitsPicker({
                 size === "xs" ? "gap-1" : "gap-1.5",
               )}
             >
-              <ComposerControlIcon icon={BrainIcon} size={size} className="redesign:hidden" />
-              <ComposerControlIcon icon={GaugeIcon} size={size} className="hidden redesign:block" />
+              {triggerIcon}
               <span data-composer-control-label className="min-w-0 truncate">
                 {triggerLabel}
               </span>
@@ -609,8 +629,7 @@ export const TraitsPicker = memo(function TraitsPicker({
             </span>
           ) : (
             <>
-              <ComposerControlIcon icon={BrainIcon} size={size} className="redesign:hidden" />
-              <ComposerControlIcon icon={GaugeIcon} size={size} className="hidden redesign:block" />
+              {triggerIcon}
               <span data-composer-control-label>{triggerLabel}</span>
               <ComposerControlChevron size={size} />
             </>
@@ -630,6 +649,7 @@ export const TraitsPicker = memo(function TraitsPicker({
           reportedModelSelection={reportedModelSelection}
           allowPromptInjectedEffort={allowPromptInjectedEffort}
           planModeEnabled={planModeEnabled}
+          omitDescriptorIds={omitDescriptorIds}
           {...persistence}
         />
       </MenuPopup>

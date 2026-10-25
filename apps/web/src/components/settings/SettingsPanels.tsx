@@ -491,6 +491,9 @@ export function useSettingsRestore(onRestored?: () => void) {
     ...(settings.contextWindowMeterEnabled !== DEFAULT_UNIFIED_SETTINGS.contextWindowMeterEnabled
       ? ["Context window indicator"]
       : []),
+    ...(settings.maxReasoningEnabled !== DEFAULT_UNIFIED_SETTINGS.maxReasoningEnabled
+      ? ["Max reasoning"]
+      : []),
     ...(settings.responseStreamingMode !== DEFAULT_UNIFIED_SETTINGS.responseStreamingMode
       ? ["Response streaming"]
       : []),
@@ -605,6 +608,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       sendShortcut: DEFAULT_UNIFIED_SETTINGS.sendShortcut,
       followUpBehavior: DEFAULT_UNIFIED_SETTINGS.followUpBehavior,
       contextWindowMeterEnabled: DEFAULT_UNIFIED_SETTINGS.contextWindowMeterEnabled,
+      maxReasoningEnabled: DEFAULT_UNIFIED_SETTINGS.maxReasoningEnabled,
       environmentIdentificationMode: DEFAULT_UNIFIED_SETTINGS.environmentIdentificationMode,
       glassOpacity: DEFAULT_UNIFIED_SETTINGS.glassOpacity,
       panelAnimationDurationMs: DEFAULT_UNIFIED_SETTINGS.panelAnimationDurationMs,
@@ -708,6 +712,7 @@ const LEGACY_FEATURE_TARGET_IDS: ReadonlySet<string> = new Set([
   "legacy-plan-mode",
   "legacy-context-window-indicator",
   "legacy-sidebar",
+  "legacy-max-reasoning",
 ]);
 
 function LegacyFeaturesSection() {
@@ -775,6 +780,19 @@ function LegacyFeaturesSection() {
                     updateSettings({ legacySidebarEnabled: Boolean(checked) })
                   }
                   aria-label="Sidebar (legacy)"
+                />
+              }
+            />
+            <SettingsRow
+              {...searchableSetting("legacy-max-reasoning")}
+              description="Restore the Max reasoning level in the model picker."
+              control={
+                <Switch
+                  checked={settings.maxReasoningEnabled}
+                  onCheckedChange={(checked) =>
+                    updateSettings({ maxReasoningEnabled: Boolean(checked) })
+                  }
+                  aria-label="Max reasoning (legacy)"
                 />
               }
             />

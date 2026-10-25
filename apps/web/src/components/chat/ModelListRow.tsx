@@ -1,3 +1,4 @@
+import type { ReasoningColumn, SpeedTier } from "@t3tools/client-runtime/model-reasoning-grid";
 import { type ProviderDriverKind, type ProviderInstanceId } from "@t3tools/contracts";
 import { memo } from "react";
 import { CheckIcon, StarIcon } from "lucide-react";
@@ -14,6 +15,10 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { cn } from "~/lib/utils";
 import { modelPickerModelKey } from "./modelPickerKeys";
 import { ProviderInstanceIcon } from "./ProviderInstanceIcon";
+import { ModelReasoningCells } from "./ReasoningGridControls";
+
+const EMPTY_REASONING_LEVELS: ReadonlyArray<ReasoningColumn> = [];
+const EMPTY_SPEEDS: ReadonlyArray<SpeedTier> = [];
 
 export const ModelListRow = memo(function ModelListRow(props: {
   index: number;
@@ -38,6 +43,27 @@ export const ModelListRow = memo(function ModelListRow(props: {
   jumpLabel?: string | null;
   disabledReason?: string | null;
   onToggleFavorite: (instanceId: ProviderInstanceId, slug: string) => void;
+  /** Present only in the composer's combined model and reasoning picker. */
+  reasoningColumns?: ReadonlyArray<ReasoningColumn> | undefined;
+  reasoningLevels?: ReadonlyArray<ReasoningColumn> | undefined;
+  reasoningCurrent?: ReasoningColumn | null;
+  reasoningActive?: boolean;
+  reasoningDisabledReason?: string | null;
+  speedColumns?: ReadonlyArray<SpeedTier> | undefined;
+  speedTiers?: ReadonlyArray<SpeedTier> | undefined;
+  speedCurrent?: SpeedTier | null;
+  onChooseSpeed?: (
+    instanceId: ProviderInstanceId,
+    slug: string,
+    tier: SpeedTier,
+    keepOpen: boolean,
+  ) => void;
+  onChooseReasoning?: (
+    instanceId: ProviderInstanceId,
+    slug: string,
+    column: ReasoningColumn,
+    keepOpen: boolean,
+  ) => void;
 }) {
   const model = {
     slug: props.slug,
@@ -46,6 +72,10 @@ export const ModelListRow = memo(function ModelListRow(props: {
     subProvider: props.subProvider,
   };
   const providerLabel = getProviderRowLabel(props.providerDisplayName, props.subProvider);
+  const displayName = props.useTriggerLabel
+    ? getTriggerDisplayModelLabel(model)
+    : getDisplayModelName(model, props.preferShortName ? { preferShortName: true } : undefined);
+  const showsReasoning = props.reasoningColumns !== undefined;
 
   const row = (
     <ComboboxItem
@@ -61,14 +91,7 @@ export const ModelListRow = memo(function ModelListRow(props: {
     >
       <div className="min-w-0 flex-1 text-left">
         <div className="flex min-w-0 items-center gap-2">
-          <div className="min-w-0 truncate text-xs font-medium leading-snug">
-            {props.useTriggerLabel
-              ? getTriggerDisplayModelLabel(model)
-              : getDisplayModelName(
-                  model,
-                  props.preferShortName ? { preferShortName: true } : undefined,
-                )}
-          </div>
+          <div className="min-w-0 truncate text-xs font-medium leading-snug">{displayName}</div>
           {props.showNewBadge ? (
             <span
               className="shrink-0 rounded border border-update/35 bg-update/15 px-0.5 py-px text-3xs font-bold uppercase leading-none tracking-wide text-update-foreground"
@@ -105,36 +128,67 @@ export const ModelListRow = memo(function ModelListRow(props: {
           <CheckIcon className="size-3.5" aria-hidden="true" />
         ) : null}
         {props.jumpLabel ? <Kbd>{props.jumpLabel}</Kbd> : null}
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <Button
-                size="icon-xs"
-                variant="ghost-muted"
-                className="-mr-1 shrink-0"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  props.onToggleFavorite(props.instanceId, props.slug);
-                }}
-                onKeyDown={(event) => {
-                  event.stopPropagation();
-                }}
-                disabled={Boolean(props.disabledReason)}
-                aria-label={props.isFavorite ? "Remove from favorites" : "Add to favorites"}
-              >
-                <StarIcon
-                  className={cn(
-                    "size-3.5 sm:size-3",
-                    props.isFavorite && "fill-current text-warning",
-                  )}
-                />
-              </Button>
+        <span
+          className={cn(
+            "flex shrink-0",
+            showsReasoning &&
+              !props.isFavorite &&
+              "opacity-0 focus-within:opacity-100 group-hover:opacity-100 group-data-highlighted:opacity-100 pointer-coarse:opacity-100",
+          )}
+        >
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  size="icon-xs"
+                  variant="ghost-muted"
+                  className={showsReasoning ? "shrink-0" : "-mr-1 shrink-0"}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    props.onToggleFavorite(props.instanceId, props.slug);
+                  }}
+                  onKeyDown={(event) => {
+                    event.stopPropagation();
+                  }}
+                  disabled={Boolean(props.disabledReason)}
+                  aria-label={props.isFavorite ? "Remove from favorites" : "Add to favorites"}
+                >
+                  <StarIcon
+                    className={cn(
+                      "size-3.5 sm:size-3",
+                      props.isFavorite && "fill-current text-warning",
+                    )}
+                  />
+                </Button>
+              }
+            />
+            <TooltipPopup side="top" align="center">
+              {props.isFavorite ? "Remove from favorites" : "Add to favorites"}
+            </TooltipPopup>
+          </Tooltip>
+        </span>
+        {props.reasoningColumns !== undefined ? (
+          <ModelReasoningCells
+            rowKey={modelPickerModelKey(props.instanceId, props.slug)}
+            modelName={displayName}
+            driverKind={props.driverKind}
+            columns={props.reasoningColumns}
+            levels={props.reasoningLevels ?? EMPTY_REASONING_LEVELS}
+            current={props.reasoningCurrent ?? null}
+            isActive={props.reasoningActive === true}
+            disabled={Boolean(props.disabledReason)}
+            lockReason={props.disabledReason ? null : (props.reasoningDisabledReason ?? null)}
+            speedColumns={props.speedColumns ?? EMPTY_SPEEDS}
+            speedTiers={props.speedTiers ?? EMPTY_SPEEDS}
+            speedCurrent={props.speedCurrent ?? null}
+            onChoose={(column, keepOpen) =>
+              props.onChooseReasoning?.(props.instanceId, props.slug, column, keepOpen)
+            }
+            onChooseSpeed={(tier, keepOpen) =>
+              props.onChooseSpeed?.(props.instanceId, props.slug, tier, keepOpen)
             }
           />
-          <TooltipPopup side="top" align="center">
-            {props.isFavorite ? "Remove from favorites" : "Add to favorites"}
-          </TooltipPopup>
-        </Tooltip>
+        ) : null}
       </div>
     </ComboboxItem>
   );

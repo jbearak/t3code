@@ -648,6 +648,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["project thread tree old flat list"],
   },
   {
+    id: "legacy-max-reasoning",
+    title: "Max reasoning (legacy)",
+    to: "/settings/general",
+    searchTerms: ["model picker reasoning effort level maximum old"],
+  },
+  {
     id: "keybindings",
     title: "Keybindings",
     to: "/settings/keybindings",

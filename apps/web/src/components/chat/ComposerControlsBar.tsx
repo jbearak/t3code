@@ -2,7 +2,7 @@ import type { ChatComposerProps } from "./ChatComposer";
 import type { PromptUltrathink } from "./TraitsPicker";
 import type { ProviderInstanceEntry } from "../../providerInstances";
 import { type AppModelOption } from "../../modelSelection";
-import { CircleAlertIcon } from "lucide-react";
+import { CircleAlertIcon, SlidersHorizontalIcon } from "lucide-react";
 import { CompactComposerControlsMenu } from "./CompactComposerControlsMenu";
 import { ComposerControl, ComposerControlSeparator } from "./ComposerControl";
 import {
@@ -24,6 +24,7 @@ import {
   renderProviderTraitsMenuContent,
   renderProviderTraitsPicker,
 } from "./composerProviderState";
+import { useComposerReasoningGrid } from "./composerReasoningGrid";
 import type { useComposerProviderModel } from "./useComposerProviderModel";
 
 /**
@@ -42,8 +43,12 @@ export function ComposerControlsBar(props: {
   composerModelOptions: ReturnType<typeof useComposerProviderModel>["composerModelOptions"];
   reportedModelSelection: ChatComposerProps["reportedModelSelection"];
   promptUltrathink: PromptUltrathink;
-  onPromptEdit: (edit: (prompt: string) => string) => void;
+  onPromptEdit: (
+    edit: (prompt: string) => string,
+    options?: { readonly focusComposer?: boolean },
+  ) => void;
   planModeEnabled: boolean;
+  maxReasoningEnabled: boolean;
   planModeUiEnabled: boolean;
   interactionMode: ProviderInteractionMode;
   compatibleRuntimeMode: RuntimeMode;
@@ -93,6 +98,7 @@ export function ComposerControlsBar(props: {
     promptUltrathink,
     onPromptEdit,
     planModeEnabled,
+    maxReasoningEnabled,
     planModeUiEnabled,
     interactionMode,
     compatibleRuntimeMode,
@@ -128,6 +134,29 @@ export function ComposerControlsBar(props: {
     modelPickerIconClassName,
     getModelDisabledReason,
   } = props;
+  const reasoningGrid = useComposerReasoningGrid({
+    threadTarget:
+      routeKind === "server" ? routeThreadRef : routeKind === "draft" && draftId ? draftId : null,
+    instanceEntries: providerInstanceEntries,
+    activeInstanceId: selectedInstanceId,
+    activeModel: selectedModel,
+    activeOptions: composerModelOptions?.[selectedInstanceId],
+    reportedModelSelection,
+    planModeEnabled,
+    promptUltrathink,
+    onPromptEdit,
+    showMax: maxReasoningEnabled,
+    onProviderModelSelect: (instanceId, model, options) => {
+      onMultipleModelSelectionsChange(null);
+      return onProviderModelSelect(instanceId, model, options);
+    },
+  });
+  const otherOptionsInput = {
+    omitDescriptorIds: reasoningGrid.handledDescriptorIds,
+    ...(reasoningGrid.handlesReasoning
+      ? { icon: SlidersHorizontalIcon, ownsEffortShortcut: false }
+      : {}),
+  };
   const providerTraitsMenuContent = renderProviderTraitsMenuContent({
     provider: selectedProvider,
     instanceId: selectedInstanceId,
@@ -140,6 +169,7 @@ export function ComposerControlsBar(props: {
     promptUltrathink,
     onPromptEdit,
     planModeEnabled,
+    ...otherOptionsInput,
   });
   const providerTraitsPickerInput = {
     provider: selectedProvider,
@@ -154,6 +184,7 @@ export function ComposerControlsBar(props: {
     onPromptEdit,
     planModeEnabled,
     isComposerOwned: true,
+    ...otherOptionsInput,
   } satisfies Parameters<typeof renderProviderTraitsPicker>[0];
   const providerTraitsPicker = renderProviderTraitsPicker(providerTraitsPickerInput);
   const restingProviderTraitsPicker = renderProviderTraitsPicker({
@@ -245,6 +276,7 @@ export function ComposerControlsBar(props: {
       onOpenChange={onModelPickerOpenChange}
       getModelDisabledReason={getModelDisabledReason}
       onOpenProviderSetup={onOpenProviderSetup}
+      reasoningGrid={reasoningGrid.grid}
     />
   );
   return showProviderUnavailable ? (

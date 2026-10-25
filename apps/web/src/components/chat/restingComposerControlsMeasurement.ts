@@ -23,10 +23,14 @@ function providerModelPickerNaturalWidth(picker: HTMLElement): number {
   const renderedWidth = picker.getBoundingClientRect().width;
   if (renderedWidth === 0) return 0;
   const style = getComputedStyle(picker);
-  const label = picker.querySelector<HTMLElement>('[data-chat-provider-model-picker-label="true"]');
-  const labelIsCollapsed = label?.clientWidth === 0 && getComputedStyle(label).flexGrow === "0";
-  const hiddenLabelWidth =
-    label && !labelIsCollapsed ? Math.max(0, label.scrollWidth - label.clientWidth) : 0;
+  let hiddenLabelWidth = 0;
+  // The model name and, in the composer, the reasoning level are both truncatable labels.
+  for (const label of picker.querySelectorAll<HTMLElement>(
+    '[data-chat-provider-model-picker-label="true"]',
+  )) {
+    const labelIsCollapsed = label.clientWidth === 0 && getComputedStyle(label).flexShrink === "0";
+    if (!labelIsCollapsed) hiddenLabelWidth += Math.max(0, label.scrollWidth - label.clientWidth);
+  }
   const maxWidth = Number.parseFloat(style.maxWidth);
   const naturalWidth = Math.min(
     renderedWidth + hiddenLabelWidth,
