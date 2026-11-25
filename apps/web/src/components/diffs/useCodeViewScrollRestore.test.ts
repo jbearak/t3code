@@ -4,9 +4,45 @@ import { describe, expect, it } from "vite-plus/test";
 import { createCodeViewScrollRestore } from "./useCodeViewScrollRestore";
 
 function viewer(scrollHeight: number, height = 500) {
-  const instance = { scrollHeight, height, getHeight: () => 0, getScrollHeight: () => 0 };
-  instance.getHeight = () => instance.height;
-  instance.getScrollHeight = () => instance.scrollHeight;
+  // Each drawn file: its top, its added line count, and the line under the sticky header.
+  const files: Array<{
+    id: string;
+    top: number;
+    lines: number;
+    line?: { lineNumber: number; top: number };
+  }> = [];
+  const instance = {
+    scrollHeight,
+    height,
+    scrollTop: 0,
+    // The stretch whose rows are drawn; a jump lands outside it until the viewer renders.
+    drawn: { top: 0, bottom: Number.MAX_SAFE_INTEGER },
+    files,
+    getHeight: () => instance.height,
+    getScrollHeight: () => instance.scrollHeight,
+    getScrollTop: () => instance.scrollTop,
+    getWindowSpecs: () => instance.drawn,
+    getItem: (id: string) => {
+      const file = instance.files.find((candidate) => candidate.id === id);
+      if (file === undefined) return undefined;
+      const hunk = {
+        additionStart: 1,
+        additionCount: file.lines,
+        deletionStart: 0,
+        deletionCount: 0,
+      };
+      // A file shown before its patch loads has no hunks and a pending cache key.
+      return file.lines === 0
+        ? { type: "diff", fileDiff: { cacheKey: `${id}:pending`, hunks: [] } }
+        : { type: "diff", fileDiff: { cacheKey: id, hunks: [hunk] } };
+    },
+    getTopForItem: (id: string) => instance.files.find((file) => file.id === id)?.top,
+    getRenderedItems: () =>
+      instance.files.map((file) => ({
+        id: file.id,
+        instance: { getNumericScrollAnchor: () => file.line },
+      })),
+  };
   const scrolls: CodeViewScrollTarget[] = [];
   return {
     instance,
@@ -147,6 +183,107 @@ describe("createCodeViewScrollRestore", () => {
     kept.instance.scrollHeight = 10_000;
     restore.flush();
     expect(kept.scrolls).toEqual([{ type: "position", position: 832 }]);
+  });
+
+  it("aims at the line that was under the sticky header, wherever the new viewer puts it", () => {
+    const first = viewer(10_000);
+    first.instance.files = [
+      { id: "a", top: 0, lines: 100 },
+      { id: "b", top: 3000, lines: 100, line: { lineNumber: 40, top: 1100 } },
+      { id: "c", top: 6000, lines: 100 },
+    ];
+    mount("thread-line", first).onScroll(4000, first.instance);
+
+    // Line 40 sat 68px under the header: 3000 + 1100 - 4000 - 32.
+    const line = { type: "line", id: "b", lineNumber: 40, align: "start", offset: 68 };
+    const loading = viewer(700);
+    let batches = 0;
+    const restore = mount("thread-line", loading, false, () => {
+      batches += 1;
+    });
+    expect(loading.scrolls).toEqual([]);
+    expect(batches).toBe(1);
+    // The file is back, so the line is reachable though the estimated height is not.
+    loading.instance.files = [{ id: "b", top: 500, lines: 100 }];
+    restore.flush();
+    expect(loading.scrolls).toEqual([line]);
+  });
+
+  it("anchors a jump once the viewer has drawn the rows it landed on", () => {
+    const first = viewer(10_000);
+    first.instance.files = [{ id: "a", top: 0, lines: 100, line: { lineNumber: 5, top: 132 } }];
+    first.instance.drawn = { top: 0, bottom: 1000 };
+    const restore = mount("thread-jump", first);
+    // Pierre reports the scroll first: the drawn file is still the one from before the jump.
+    restore.onScroll(4000, first.instance);
+    first.instance.scrollTop = 4000;
+    first.instance.files = [
+      { id: "b", top: 3000, lines: 100, line: { lineNumber: 40, top: 1100 } },
+    ];
+    first.instance.drawn = { top: 3500, bottom: 5000 };
+    restore.flush();
+
+    const again = viewer(10_000);
+    again.instance.files = [{ id: "b", top: 2000, lines: 100 }];
+    mount("thread-jump", again);
+    expect(again.scrolls).toEqual([
+      { type: "line", id: "b", lineNumber: 40, align: "start", offset: 68 },
+    ]);
+  });
+
+  it("waits for the patch of a file that is shown before it loads", () => {
+    const first = viewer(10_000);
+    first.instance.files = [
+      { id: "b", top: 3000, lines: 100, line: { lineNumber: 40, top: 1100 } },
+    ];
+    mount("thread-lazy", first).onScroll(4000, first.instance);
+
+    // Header-only placeholders already make the viewer tall enough for the offset.
+    const loading = viewer(10_000);
+    loading.instance.files = [{ id: "b", top: 320, lines: 0 }];
+    let batches = 0;
+    const restore = mount("thread-lazy", loading, false, () => {
+      batches += 1;
+    });
+    expect(loading.scrolls).toEqual([]);
+    expect(batches).toBe(1);
+    loading.instance.files = [{ id: "b", top: 320, lines: 100 }];
+    restore.flush();
+    expect(loading.scrolls).toEqual([
+      { type: "line", id: "b", lineNumber: 40, align: "start", offset: 68 },
+    ]);
+  });
+
+  it("falls back to the offset when the line or its file is gone", () => {
+    const first = viewer(10_000);
+    first.instance.files = [
+      { id: "b", top: 3000, lines: 100, line: { lineNumber: 40, top: 1100 } },
+    ];
+    mount("thread-gone", first).onScroll(4000, first.instance);
+
+    const shorter = viewer(10_000);
+    shorter.instance.files = [{ id: "b", top: 3000, lines: 10 }];
+    mount("thread-gone", shorter);
+    const renamed = viewer(10_000);
+    renamed.instance.files = [{ id: "other", top: 3000, lines: 100 }];
+    mount("thread-gone", renamed);
+    expect(shorter.scrolls).toEqual([{ type: "position", position: 4032 }]);
+    expect(renamed.scrolls).toEqual([{ type: "position", position: 4032 }]);
+  });
+
+  it("aims at the next file's header when no line is left under the sticky one", () => {
+    const first = viewer(10_000);
+    // The end of a long file, or a collapsed one: its own top would count unmeasured rows.
+    first.instance.files = [
+      { id: "a", top: 0, lines: 100 },
+      { id: "b", top: 3010, lines: 100 },
+    ];
+    mount("thread-next", first).onScroll(3000, first.instance);
+
+    const again = viewer(10_000);
+    again.instance.files = [{ id: "b", top: 2000, lines: 100 }];
+    mount("thread-next", again);
+    expect(again.scrolls).toEqual([{ type: "item", id: "b", align: "start", offset: 10 }]);
   });
 
   it("forgets a position that a reveal or collapsing every file replaced", () => {
